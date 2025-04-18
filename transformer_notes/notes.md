@@ -50,64 +50,86 @@ Model recieves $X + PE : (s,d)$
 # Self Attention
 This mechanism is what changed everything.
 
-Define Query, Key and Value Matricies as $Q,K:(s,d_k)$ and $V:(s,d_v)$.
+Define Query, Key and Value Matricies as $\boldsymbol{Q,K}:(s,d_k)$ and $\boldsymbol{V}:(s,d_v)$.
 
 Write them as below.
 $$
-Q=
+\boldsymbol{Q}=
 \begin{bmatrix}
-   \mathbf{q_1^T}   \\
+   \boldsymbol{q_1^T}   \\
    \vdots   \\
-   \mathbf{q_s^T} 
+   \boldsymbol{q_s^T} 
 \end{bmatrix}
 
 \text{for }
-\mathbf{q_i} \in \mathbb{R}^{d_k}, i \in \left\{ 1,...,s\right\}
+\boldsymbol{q_i} \in \mathbb{R}^{d_k}, i \in \left\{ 1,...,s\right\}
 $$
 
 $$
-K=
+\boldsymbol{K}=
 \begin{bmatrix}
-   \mathbf{k_1^T}   \\
+   \boldsymbol{k_1^T}   \\
    \vdots   \\
-   \mathbf{k_s^T} 
+   \boldsymbol{k_s^T} 
 \end{bmatrix}
 
 \text{for }
-\mathbf{k_i} \in \mathbb{R}^{d_k}, i \in \left\{ 1,...,s\right\}
+\boldsymbol{k_i} \in \mathbb{R}^{d_k}, i \in \left\{ 1,...,s\right\}
 $$
 
 $$
-V=
+\boldsymbol{V}=
 \begin{bmatrix}
-   \mathbf{v_1^T}   \\
+   \boldsymbol{v_1^T}   \\
    \vdots   \\
-   \mathbf{v_s^T} 
+   \boldsymbol{v_s^T} 
 \end{bmatrix}
 
 \text{for }
-\mathbf{v_i} \in \mathbb{R}^{d_v}, i \in \left\{ 1,...,s\right\}
+\boldsymbol{v_i} \in \mathbb{R}^{d_v}, i \in \left\{ 1,...,s\right\}
 $$
 
 Define 
-$\text{Attention}(Q,K,V)=\sigma \left( \dfrac{\mathbf{Q K^T}}{\sqrt{d_k}} \right)$ for row wise softmax.
+$\text{Attention}(\boldsymbol{Q,K,V})=\sigma \left( \dfrac{\boldsymbol{Q K^T}}{\sqrt{d_k}} \right) \boldsymbol{V}$, for row wise softmax $\sigma$.
 
 We see that 
 $
-\mathbf{QK^T}_{i,j} = \mathbf{q_i \cdotp k_j}
+\boldsymbol{Z}_{i,j}\coloneqq \boldsymbol{QK^T}_{i,j} = \boldsymbol{q_i \cdotp k_j}
 $
 is like the similarity score between query $i$ and key $j$.
 
 Rowise softmax means,
 $$
-\sigma \left( \mathbf{A} \right)_{i,j} = 
-\cfrac{\exp \left( A_{i,j} \right)}{\sum_{r=1}^s \exp \left( A_{i,r} \right)} = 
+\sigma \left( \boldsymbol{Z} \right)_{i,j} = 
 \cfrac{
-   \exp \left( \mathbf{q_i \cdotp k_j} \right)
+   \exp \left( \frac{1}{\sqrt{d_k}} \boldsymbol{Z}_{i,j} \right)
    }
-   {\sum_{r=1}^s \exp \left( \mathbf{q_i \cdotp k_r} \right)
+   {\sum_{r=1}^s \exp \left( \frac{1}{\sqrt{d_k}} \boldsymbol{Z}_{i,r} \right)
    } = 
-\cfrac{\text{score(i,j)}}{\text{row i score}}
-\equalscolon \alpha(\mathbf{q_i, k_j}|K)
+\cfrac{
+   \exp \left( \frac{1}{\sqrt{d_k}} \boldsymbol{q_i \cdotp k_j} \right)
+   }
+   {\sum_{r=1}^s \exp \left( \frac{1}{\sqrt{d_k}} \boldsymbol{q_i \cdotp k_r} \right)
+   } = 
+\cfrac{\text{score}(i,j)}{\sum_{r=1}^s \text{score}(i,r)}
+\equalscolon 
+\alpha(\boldsymbol{q_i, k_j}|\boldsymbol{K})
 $$
-so we essentially have relative similarity between query $i$ and key $j$
+so we essentially have row normalised similarity between query $i$ and key $j$.
+
+Let 
+$\boldsymbol{A} \eqqcolon \text{Attention}(\boldsymbol{Q,K,V})$, then
+$$
+\boldsymbol{A}_{i,j} 
+= \sum_{r=1}^s \sigma \left( \boldsymbol{Z} \right)_{i,r}  \boldsymbol{V}_{r,j}
+= \sum_{r=1}^s \alpha(\boldsymbol{q_i, k_r}|\boldsymbol{K}) [\boldsymbol{v_r}]_j
+$$
+
+and therefore row $i$ is,
+$$
+\boldsymbol{A_{i,:}}
+= \sum_{r=1}^s \sigma \left( \boldsymbol{Z} \right)_{i,r}  \boldsymbol{V}_{r,j}
+= \sum_{r=1}^s \alpha(\boldsymbol{q_i, k_r}|\boldsymbol{K})  \boldsymbol{v_r^T}
+\in \mathbb{R}^{1,d_v}
+$$
+the sum of values, each weighted by query $i$'s similarity with that key.

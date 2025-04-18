@@ -51,7 +51,7 @@ $$
 Fixed definition for each position 
 $p \in \left\{1,...,s \right\}$
 and dimension index 
-$i \in \left\{1,...,d \right\}$.
+$2i \text{ or } 2i+1 \text{ for } i \in \left\{1,...,d \right\}$.
 
 $$
 PE :(s,d)  =
@@ -71,10 +71,23 @@ This mechanism is what changed everything.
 
 ## Attention Definition
 
-Define Query, Key and Value Matricies as $\boldsymbol{Q,K}:(s,d_k)$ and $\boldsymbol{V}:(s,d_v)$.
+Let Query, Key and Value Matricies be $\boldsymbol{Q,K}:(s,d_k)$ and $\boldsymbol{V}:(s,d_v)$.
 
 Define 
-$\text{Attention}(\boldsymbol{Q,K,V}) \coloneqq\sigma \left( \dfrac{\boldsymbol{Q K^T}}{\sqrt{d_k}} \right) \boldsymbol{V}$, for row wise softmax $\sigma$.
+$\text{Attention}: 
+\mathbb{R}^{s \times d_k} \times \mathbb{R}^{s \times d_k} \times \mathbb{R}^{s \times d_v}
+\to
+\mathbb{R}^{s \times d_v}
+$
+by
+
+$$
+\text{Attention}(\boldsymbol{Q,K,V})
+\coloneqq\sigma \left( \dfrac{\boldsymbol{Q K^T}}{\sqrt{d_k}} \right) \boldsymbol{V}
+: (s,d_v)
+$$
+
+, for row wise softmax $\sigma$.
 
 ## Explanation
 
@@ -171,9 +184,11 @@ $$
 Therefore if we permute two rows of A, the output of Attention has the same two rows permuted.
 
 ## Muti Head Attention Definition
-Let $s$ be sequence length, $d$ be model dimension, $h$ be the number of heads and $d_k=d_v=\frac{d}{h}$.
+Let $s$ be sequence length, $d$ be model dimension, $h$ be the number of heads and $d_k=d_v=\frac{d}{h}$. 
 
+Let $\boldsymbol{Q,K,V}$ be of dimension $(s,d)$.
 
+Define,
 $$
 \begin{align*}
 \text{MultiHeadAttention}(\boldsymbol{Q,K,V})
@@ -203,7 +218,7 @@ $$
 $$
 
 are learnable parameters with 
-$\boldsymbol{W_i^Q},\boldsymbol{W_i^K},\boldsymbol{W_i^V}:(d,d_V)$ for 
+$\boldsymbol{W_i^Q},\boldsymbol{W_i^K},\boldsymbol{W_i^V}:(d,d_v)$ for 
 $i=1,...,h$.
 
 This is essentially a trick to do all the compute in one go.
@@ -211,8 +226,20 @@ This is essentially a trick to do all the compute in one go.
 $$
 \begin{align*}
 \boldsymbol{QW^Q}
-&= \boldsymbol{Q} [\boldsymbol{W_1^Q} ,...,\boldsymbol{W_1^Q}]
+&= [\boldsymbol{QW_1^Q} ,...,\boldsymbol{QW_h^Q}]
+&&:(s,d)
 \\
-&= [\boldsymbol{Q} \boldsymbol{W_1^Q} ,...,\boldsymbol{Q} \boldsymbol{W_1^Q}]
+&= [
+\underset{\textstyle (s,d_v)}{\boldsymbol{Q} \boldsymbol{W_1^Q}} 
+,...,
+\underset{\textstyle (s,d_v)}{\boldsymbol{Q} \boldsymbol{W_h^Q}} 
+]
+&&:(s,d)
 \end{align*}
 $$
+
+The general idea with different heads is for different heads to learn different roles that words can play.
+
+## Attention Visualisation
+
+The diagrams in the paper are show the similarity between words according to $\sigma \left( \frac{\boldsymbol{QK^T}}{\sqrt{d_k}} \right)$ of each head.

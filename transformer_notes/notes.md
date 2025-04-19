@@ -3,7 +3,7 @@
 
 Input Matrix 
 $X \in \mathbb{R}^{s \times d}$. Let's denote as 
-$\color{red}{X : (s,d)}$ since it is more readable. We mean s and d to mean sequence length and dimension of model respectively.
+$X : (s,d)$ since it is more readable. We mean s and d to mean sequence length and dimension of model respectively.
 
 # Input Embeddings
 The raw text is a sequence of vocabulary terms. Tokenization is the process of splitting the sentence into a sequence of vocabulary terms. Vocab terms can be single words but often tokenizers split the sentences into smaller components than words. In illustrative examples we usually show tokens as words.
@@ -133,9 +133,11 @@ We see that
 $
 \boldsymbol{Z}_{i,j}\coloneqq \boldsymbol{QK^T}_{i,j} = \boldsymbol{q_i \cdotp k_j}
 $
-is like the similarity score between query $i$ and key $j$.
+is like a similarity score between query $i$ and key $j$.
 
-Rowise softmax gives,
+### Compatibility Function
+
+If we observe the softmax applied to $\boldsymbol{Z}$, we see that each element is a compatibility function, $\alpha$, between query $i$ and key $j$.
 $$
 \sigma \left( \boldsymbol{Z} \right)_{i,j} = 
 \cfrac{
@@ -152,24 +154,28 @@ $$
 \equalscolon 
 \alpha(\boldsymbol{q_i, k_j}|\boldsymbol{K})
 $$
-so we essentially have row normalised similarity between query $i$ and key $j$.
 
 Let 
-$\boldsymbol{A} \eqqcolon \text{Attention}(\boldsymbol{Q,K,V})$, then
+$\boldsymbol{A} \coloneqq \text{Attention}(\boldsymbol{Q,K,V})$, then
+
 $$
+\begin{align*}
+
 \boldsymbol{A}_{i,j} 
 = \sum_{r=1}^s \sigma \left( \boldsymbol{Z} \right)_{i,r}  \boldsymbol{V}_{r,j}
-= \sum_{r=1}^s \alpha(\boldsymbol{q_i, k_r}|\boldsymbol{K}) [\boldsymbol{v_r}]_j
+&= \sum_{r=1}^s \alpha(\boldsymbol{q_i, k_r}|\boldsymbol{K}) [\boldsymbol{v_r}]_j
+\\
+
+\implies
+\text{row}_i \left( \boldsymbol{A} \right)
+&= \sum_{r=1}^s \alpha(\boldsymbol{q_i, k_r}|\boldsymbol{K})  \boldsymbol{v_r^T}
+\in \mathbb{R}^{1,d_v}
+
+\end{align*}
+
 $$
 
-and therefore row $i$ is,
-$$
-\boldsymbol{A_{i,:}}
-= \sum_{r=1}^s \sigma \left( \boldsymbol{Z} \right)_{i,r}  \boldsymbol{V}_{r,j}
-= \sum_{r=1}^s \alpha(\boldsymbol{q_i, k_r}|\boldsymbol{K})  \boldsymbol{v_r^T}
-\in \mathbb{R}^{1,d_v}
-$$
-the sum of values, each weighted by query $i$'s similarity with that key.
+row $i$ of $\boldsymbol{A}$ is the sum of values, each weighted by query $i$'s similarity with that key.
 
 ## Remarks
 
@@ -188,7 +194,7 @@ Let $s$ be sequence length, $d$ be model dimension, $h$ be the number of heads a
 
 Let $\boldsymbol{Q,K,V}$ be of dimension $(s,d)$.
 
-Define,
+Define,    
 $$
 \begin{align*}
 \text{MultiHeadAttention}(\boldsymbol{Q,K,V})

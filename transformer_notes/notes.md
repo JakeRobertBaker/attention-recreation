@@ -152,7 +152,7 @@ $$
    } = 
 \cfrac{\text{score}(i,j)}{\sum_{r=1}^s \text{score}(i,r)}
 \equalscolon 
-\alpha(\boldsymbol{q_i, k_j}|\boldsymbol{K})
+\alpha(\boldsymbol{q_i},\boldsymbol{K},j)
 $$
 
 Let 
@@ -163,12 +163,12 @@ $$
 
 \boldsymbol{A}_{i,j} 
 = \sum_{r=1}^s \sigma \left( \boldsymbol{Z} \right)_{i,r}  \boldsymbol{V}_{r,j}
-&= \sum_{r=1}^s \alpha(\boldsymbol{q_i, k_r}|\boldsymbol{K}) [\boldsymbol{v_r}]_j
+&= \sum_{r=1}^s \alpha(\boldsymbol{q_i},\boldsymbol{K},j) [\boldsymbol{v_r}]_j
 \\
 
 \implies
 \text{row}_i \left( \boldsymbol{A} \right)
-&= \sum_{r=1}^s \alpha(\boldsymbol{q_i, k_r}|\boldsymbol{K})  \boldsymbol{v_r^T}
+&= \sum_{r=1}^s \alpha(\boldsymbol{q_i},\boldsymbol{K},j) \boldsymbol{v_r^T}
 \in \mathbb{R}^{1,d_v}
 
 \end{align*}
@@ -183,7 +183,7 @@ row $i$ of $\boldsymbol{A}$ is the sum of values, each weighted by query $i$'s s
 Notice that row $i$ of $\boldsymbol{A}$ is a function of $\boldsymbol{q_i, K,V}$,
 $$
 \text{row}_i \left( \boldsymbol{A} \right) =
-\sum_{r=1}^s \alpha(\boldsymbol{q_i, k_r}|\boldsymbol{K})  \boldsymbol{v_r^T}
+\sum_{r=1}^s \alpha(\boldsymbol{q_i},\boldsymbol{K},j) \boldsymbol{v_r^T}
 \eqqcolon f(\boldsymbol{q_i, K,V})
 $$
 

@@ -1,10 +1,11 @@
 import torch
 from torch import Tensor
 from torch import nn
+from torch.nn import Module
 import math
 
 
-class EncoderDecoder(nn.Module):
+class EncoderDecoder(Module):
     def __init__(
         self,
         d_model: int,
@@ -12,7 +13,7 @@ class EncoderDecoder(nn.Module):
         n_heads: int,
         n_encoder_stacks: int,
         n_decoder_stacks: int,
-        input_id_encoder: nn.Module,
+        input_id_encoder: Module,
     ):
         super().__init__()
         self.d_model = d_model
@@ -25,7 +26,7 @@ class EncoderDecoder(nn.Module):
         self.encoder = Encoder(d_model=d_model, d_inner_layer=d_inner_layer, n_heads=n_heads, n_stacks=n_encoder_stacks)
 
 
-class Encoder(nn.Module):
+class Encoder(Module):
     def __init__(
         self,
         d_model: int,
@@ -40,10 +41,14 @@ class Encoder(nn.Module):
         self.n_heads = n_heads
         self.n_stacks = n_stacks
 
-        self.layers = nn.ModuleList(
+        self.layers: list[EncoderLayer] = nn.ModuleList(
             [EncoderLayer(d_model=d_model, d_inner_layer=d_inner_layer, n_heads=n_heads) for i in range(n_stacks)]
         )
-    def forward(self, x:Tensor)->Tensor:
+
+        # we are doing layer norm pre sublayer, hence need extra later norm after last sublayer
+        self.final_layer_norm = nn.LayerNorm(d_model)
+
+    def forward(self, x: Tensor, mask: Tensor) -> Tensor:
         """Apply the Encoder laters to the encoded input ids.
 
         Args:
@@ -52,37 +57,54 @@ class Encoder(nn.Module):
         Returns:
             Tensor: shape (N, t, d_model)
         """
+        for layer in self.layers:
+            x = layer.forward(x, mask)
 
-        pass
+        x = self.final_layer_norm(x)
+        return x
 
 
-class EncoderLayer(nn.Module):
+class EncoderLayer(Module):
     def __init__(
         self,
         d_model: int,
         d_inner_layer: int,
         n_heads: int,
+        p_dropout: float,
     ):
         super().__init__()
         self.d_model = d_model
-        self.d_inner_later = d_inner_layer
+        self.d_inner_layer = d_inner_layer
         self.n_heads = n_heads
 
-    def forward(
-        self,
-        x: Tensor,
-    ) -> Tensor:
-        """
+        self.mha_layer_norm = nn.LayerNorm(d_model)
+        self.mha_sublayer = nn.MultiheadAttention(embed_dim=d_model, num_heads=n_heads)
+        self.mha_dropout = nn.Dropout(p_dropout)
 
+        self.mlp_layer_norm = nn.LayerNorm(d_model)
+        self.mlp_sublayer = nn.Sequential(nn.Linear(d_model, d_inner_layer), nn.Linear(d_inner_layer, d_model), nn.GELU())
+        self.mlp_dropout = nn.Dropout(p_dropout)
+
+    def forward(self, x: Tensor, mask: Tensor) -> Tensor:
+        """
         Args:
             x (Tensor): shape (N, t, d_model)
+            mask (Tensor): shape (t,t)
 
         Returns:
             Tensor: shape (N, t, d_model)
         """
+        y = self.mha_layer_norm(x)
+        y = self.mha_sublayer(y)
+        y = self.mha_dropout(y) + x
+
+        z = self.mlp_layer_norm(y)
+        z = self.mlp_sublayer(z, mask)
+        z = self.mlp_dropout(z) + y
+        return z
 
 
-class SinePositionEncoder(nn.Module):
+class SinePositionEncoder(Module):
     def __init__(self, d_model: int, p_dropout: float, max_seq_length: int = 5_000):
         super().__init__()
         self.d_model = d_model
@@ -109,10 +131,11 @@ class SinePositionEncoder(nn.Module):
         Returns:
             Tensor: shape (N, t, d_model)
         """
-        return x + self.pe[:, : x.size(1), :].requires_grad(False)
+        x = x + self.pe[:, : x.size(1), :].requires_grad(False)
+        return self.dropout(x)
 
 
-class InputIdEncoder(nn.Module):
+class InputIdEncoder(Module):
     def __init__(self, vocab_size: int, d_model: int, positional_encoder: SinePositionEncoder):
         super().__init__()
         self.vocab_size = vocab_size
@@ -132,4 +155,3 @@ class InputIdEncoder(nn.Module):
         embedding = self.token_encoder(x)  # shape (N, t, d_model)
         embedding = self.positional_encoder(embedding)
         return embedding
-

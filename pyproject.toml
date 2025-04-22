@@ -4,7 +4,12 @@ version = "0.1.0"
 description = "A recreation of the attention is all you need mode. Just to revise the topic."
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = ["torch>=2.6.0", "torchvision>=0.21.0"]
+dependencies = [
+    "pip>=25.0.1",
+    "spacy>=3.8.5",
+    "torch>=2.6.0",
+    "torchvision>=0.21.0",
+]
 
 [tool.uv.sources]
 torch = [
@@ -21,3 +26,4 @@ explicit = true
 
 [tool.ruff]
 line-length = 130
+extend-select = ["I"]

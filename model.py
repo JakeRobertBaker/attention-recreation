@@ -1,8 +1,9 @@
-import torch
-from torch import Tensor
-from torch import nn
-from torch.nn import Module
 import math
+from collections.abc import Iterable
+
+import torch
+from torch import Tensor, nn
+from torch.nn import Module
 
 
 class EncoderDecoder(Module):
@@ -37,15 +38,12 @@ class Encoder(Module):
         super().__init__()
         self.d_model = d_model
         self.d_inner_later = d_inner_layer
-
         self.n_heads = n_heads
         self.n_stacks = n_stacks
 
-        self.layers: list[EncoderLayer] = nn.ModuleList(
+        self.layers: Iterable[EncoderLayer] = nn.ModuleList(
             [EncoderLayer(d_model=d_model, d_inner_layer=d_inner_layer, n_heads=n_heads) for i in range(n_stacks)]
         )
-
-        # we are doing layer norm pre sublayer, hence need extra later norm after last sublayer
         self.final_layer_norm = nn.LayerNorm(d_model)
 
     def forward(self, x: Tensor, mask: Tensor) -> Tensor:
@@ -59,7 +57,7 @@ class Encoder(Module):
         """
         for layer in self.layers:
             x = layer.forward(x, mask)
-
+        # we apply layer norm before each sublayer, thus need final layer norm after layer[-1]
         x = self.final_layer_norm(x)
         return x
 

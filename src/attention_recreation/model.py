@@ -107,6 +107,7 @@ class SinePositionEncoder(Module):
         super().__init__()
         self.d_model = d_model
         self.dropout = nn.Dropout(p=p_dropout)
+        print("A big change")
 
         pe = torch.empty((max_seq_length, d_model))
         dim_index = torch.arange(0, d_model, 2)

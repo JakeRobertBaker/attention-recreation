@@ -61,121 +61,6 @@ class InputIdEncoder(Module):
         return embedding
 
 
-def make_input_id_encoder(
-    d_model: int,
-    p_dropout: float,
-    vocab_size: int,
-) -> InputIdEncoder:
-    positional_encoder = SinePositionEncoder(d_model, p_dropout)
-    return InputIdEncoder(vocab_size, d_model, positional_encoder)
-
-
-def make_encoder(
-    d_model: int,
-    d_inner_layer: int,
-    n_heads: int,
-    n_stacks: int,
-    p_dropout: float,
-) -> Module:
-    return Encoder(
-        d_model=d_model,
-        d_inner_layer=d_inner_layer,
-        n_heads=n_heads,
-        n_stacks=n_stacks,
-        p_dropout=p_dropout,
-        encoder_layer_factory=make_encoder_layer,
-    )
-
-
-def make_encoder_layer(
-    d_model: int,
-    d_inner_layer: int,
-    n_heads: int,
-    p_dropout: float,
-) -> Module:
-    return EncoderLayer(
-        d_model=d_model,
-        d_inner_layer=d_inner_layer,
-        n_heads=n_heads,
-        p_dropout=p_dropout,
-    )
-
-
-class EncoderDecoder(Module):
-    def __init__(
-        self,
-        d_model: int,
-        d_inner_layer: int,
-        n_heads: int,
-        n_encoder_stacks: int,
-        n_decoder_stacks: int,
-        source_vocab_size: int,
-        target_vocab_size: int,
-        input_id_encoder_factory: Callable[..., Module],
-        encoder_factory: Callable[..., Module],
-        p_dropout: float = 0.1,
-    ):
-        super().__init__()
-        self.d_model = d_model
-        self.d_inner_layer = d_inner_layer
-        self.n_heads = n_heads
-        self.n_encoder_stacks = n_encoder_stacks
-        self.n_decoder_stacks = n_decoder_stacks
-        self.source_vocab_size = source_vocab_size
-        self.target_vocab_size = target_vocab_size
-
-        self.source_id_encoder = input_id_encoder_factory(vocab_size=source_vocab_size, d_model=d_model, p_dropout=p_dropout)
-        self.target_id_encoder = input_id_encoder_factory(vocab_size=target_vocab_size, d_model=d_model, p_dropout=p_dropout)
-
-        self.encoder = encoder_factory(
-            d_model=d_model,
-            d_inner_layer=d_inner_layer,
-            n_stacks=n_encoder_stacks,
-            n_heads=n_heads,
-            p_dropout=p_dropout,
-        )
-
-
-class Encoder(Module):
-    def __init__(
-        self,
-        d_model: int,
-        d_inner_layer: int,
-        n_heads: int,
-        n_stacks: int,
-        p_dropout: float,
-        encoder_layer_factory: Callable[..., Module],
-    ):
-        super().__init__()
-        self.d_model = d_model
-        self.d_inner_layer = d_inner_layer
-        self.n_heads = n_heads
-        self.n_stacks = n_stacks
-
-        self.layers: Iterable[Module] = nn.ModuleList(
-            [
-                encoder_layer_factory(d_model=d_model, d_inner_layer=d_inner_layer, n_heads=n_heads, p_dropout=p_dropout)
-                for i in range(n_stacks)
-            ]
-        )
-        self.final_layer_norm = nn.LayerNorm(d_model)
-
-    def forward(self, x: Tensor, mask: Tensor) -> Tensor:
-        """Apply the Encoder laters to the encoded input ids.
-
-        Args:
-            x (Tensor): shape (N, t, d_model)
-
-        Returns:
-            Tensor: shape (N, t, d_model)
-        """
-        for layer in self.layers:
-            x = layer.forward(x, mask)
-        # we apply layer norm before each sublayer, thus need final layer norm after layer[-1]
-        x = self.final_layer_norm(x)
-        return x
-
-
 class EncoderLayer(Module):
     def __init__(
         self,
@@ -197,20 +82,137 @@ class EncoderLayer(Module):
         self.mlp_sublayer = nn.Sequential(nn.Linear(d_model, d_inner_layer), nn.Linear(d_inner_layer, d_model), nn.GELU())
         self.mlp_dropout = nn.Dropout(p_dropout)
 
-    def forward(self, x: Tensor, mask: Tensor) -> Tensor:
+    def forward(self, x: Tensor, key_padding_mask: Tensor) -> Tensor:
         """
         Args:
             x (Tensor): shape (N, t, d_model)
             mask (Tensor): shape (t,t)
+            key_padding_mask (Tensor): shape (t,t)
 
         Returns:
             Tensor: shape (N, t, d_model)
         """
         y = self.mha_layer_norm(x)
-        y = self.mha_sublayer(y)
+        y = self.mha_sublayer.forward(query=y,key=y,value=y, key_padding_mask=key_padding_mask)
         y = self.mha_dropout(y) + x
 
         z = self.mlp_layer_norm(y)
-        z = self.mlp_sublayer(z, mask)
+        z = self.mlp_sublayer(z)
         z = self.mlp_dropout(z) + y
         return z
+
+
+class Encoder(Module):
+    def __init__(
+        self,
+        d_model: int,
+        d_inner_layer: int,
+        n_heads: int,
+        n_stacks: int,
+        p_dropout: float,
+        encoder_layer_factory: Callable[..., EncoderLayer],
+    ):
+        super().__init__()
+        self.d_model = d_model
+        self.d_inner_layer = d_inner_layer
+        self.n_heads = n_heads
+        self.n_stacks = n_stacks
+
+        self.layers: Iterable[EncoderLayer] = nn.ModuleList(
+            [
+                encoder_layer_factory(d_model=d_model, d_inner_layer=d_inner_layer, n_heads=n_heads, p_dropout=p_dropout)
+                for i in range(n_stacks)
+            ]
+        )
+        self.final_layer_norm = nn.LayerNorm(d_model)
+
+    def forward(self, x: Tensor, key_padding_mask: Tensor) -> Tensor:
+        """Apply the Encoder laters to the encoded input ids.
+
+        Args:
+            x (Tensor): shape (N, t, d_model)
+            key_padding_mask (Tensor): shape (t,t)
+
+        Returns:
+            Tensor: shape (N, t, d_model)
+        """
+        for layer in self.layers:
+            x = layer.forward(x, key_padding_mask)
+        # we apply layer norm before each sublayer, thus need final layer norm after layer[-1]
+        x = self.final_layer_norm(x)
+        return x
+
+
+def make_input_id_encoder(
+    d_model: int,
+    p_dropout: float,
+    vocab_size: int,
+) -> InputIdEncoder:
+    positional_encoder = SinePositionEncoder(d_model, p_dropout)
+    return InputIdEncoder(vocab_size, d_model, positional_encoder)
+
+
+def make_encoder(
+    d_model: int,
+    d_inner_layer: int,
+    n_heads: int,
+    n_stacks: int,
+    p_dropout: float,
+) -> Encoder:
+    return Encoder(
+        d_model=d_model,
+        d_inner_layer=d_inner_layer,
+        n_heads=n_heads,
+        n_stacks=n_stacks,
+        p_dropout=p_dropout,
+        encoder_layer_factory=make_encoder_layer,
+    )
+
+
+def make_encoder_layer(
+    d_model: int,
+    d_inner_layer: int,
+    n_heads: int,
+    p_dropout: float,
+) -> EncoderLayer:
+    return EncoderLayer(
+        d_model=d_model,
+        d_inner_layer=d_inner_layer,
+        n_heads=n_heads,
+        p_dropout=p_dropout,
+    )
+
+
+class EncoderDecoder(Module):
+    def __init__(
+        self,
+        d_model: int,
+        d_inner_layer: int,
+        n_heads: int,
+        n_encoder_stacks: int,
+        n_decoder_stacks: int,
+        source_vocab_size: int,
+        target_vocab_size: int,
+        input_id_encoder_factory: Callable[..., InputIdEncoder],
+        encoder_factory: Callable[..., Encoder],
+        p_dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.d_model = d_model
+        self.d_inner_layer = d_inner_layer
+        self.n_heads = n_heads
+        self.n_encoder_stacks = n_encoder_stacks
+        self.n_decoder_stacks = n_decoder_stacks
+        self.source_vocab_size = source_vocab_size
+        self.target_vocab_size = target_vocab_size
+
+        self.source_id_encoder = input_id_encoder_factory(vocab_size=source_vocab_size, d_model=d_model, p_dropout=p_dropout)
+        self.target_id_encoder = input_id_encoder_factory(vocab_size=target_vocab_size, d_model=d_model, p_dropout=p_dropout)
+
+        self.encoder = encoder_factory(
+            d_model=d_model,
+            d_inner_layer=d_inner_layer,
+            n_stacks=n_encoder_stacks,
+            n_heads=n_heads,
+            p_dropout=p_dropout,
+        )

@@ -93,7 +93,7 @@ class EncoderLayer(Module):
             Tensor: shape (N, t, d_model)
         """
         y = self.mha_layer_norm(x)
-        y = self.mha_sublayer.forward(query=y,key=y,value=y, key_padding_mask=key_padding_mask)
+        y = self.mha_sublayer.forward(query=y, key=y, value=y, key_padding_mask=key_padding_mask)
         y = self.mha_dropout(y) + x
 
         z = self.mlp_layer_norm(y)
@@ -110,7 +110,6 @@ class Encoder(Module):
         n_heads: int,
         n_stacks: int,
         p_dropout: float,
-        encoder_layer_factory: Callable[..., EncoderLayer],
     ):
         super().__init__()
         self.d_model = d_model
@@ -120,7 +119,7 @@ class Encoder(Module):
 
         self.layers: Iterable[EncoderLayer] = nn.ModuleList(
             [
-                encoder_layer_factory(d_model=d_model, d_inner_layer=d_inner_layer, n_heads=n_heads, p_dropout=p_dropout)
+                EncoderLayer(d_model=d_model, d_inner_layer=d_inner_layer, n_heads=n_heads, p_dropout=p_dropout)
                 for i in range(n_stacks)
             ]
         )
@@ -141,46 +140,6 @@ class Encoder(Module):
         # we apply layer norm before each sublayer, thus need final layer norm after layer[-1]
         x = self.final_layer_norm(x)
         return x
-
-
-def make_input_id_encoder(
-    d_model: int,
-    p_dropout: float,
-    vocab_size: int,
-) -> InputIdEncoder:
-    positional_encoder = SinePositionEncoder(d_model, p_dropout)
-    return InputIdEncoder(vocab_size, d_model, positional_encoder)
-
-
-def make_encoder(
-    d_model: int,
-    d_inner_layer: int,
-    n_heads: int,
-    n_stacks: int,
-    p_dropout: float,
-) -> Encoder:
-    return Encoder(
-        d_model=d_model,
-        d_inner_layer=d_inner_layer,
-        n_heads=n_heads,
-        n_stacks=n_stacks,
-        p_dropout=p_dropout,
-        encoder_layer_factory=make_encoder_layer,
-    )
-
-
-def make_encoder_layer(
-    d_model: int,
-    d_inner_layer: int,
-    n_heads: int,
-    p_dropout: float,
-) -> EncoderLayer:
-    return EncoderLayer(
-        d_model=d_model,
-        d_inner_layer=d_inner_layer,
-        n_heads=n_heads,
-        p_dropout=p_dropout,
-    )
 
 
 class EncoderDecoder(Module):
@@ -216,3 +175,28 @@ class EncoderDecoder(Module):
             n_heads=n_heads,
             p_dropout=p_dropout,
         )
+
+
+def make_input_id_encoder(
+    d_model: int,
+    p_dropout: float,
+    vocab_size: int,
+) -> InputIdEncoder:
+    positional_encoder = SinePositionEncoder(d_model, p_dropout)
+    return InputIdEncoder(vocab_size, d_model, positional_encoder)
+
+
+def make_encoder(
+    d_model: int,
+    d_inner_layer: int,
+    n_heads: int,
+    n_stacks: int,
+    p_dropout: float,
+) -> Encoder:
+    return Encoder(
+        d_model=d_model,
+        d_inner_layer=d_inner_layer,
+        n_heads=n_heads,
+        n_stacks=n_stacks,
+        p_dropout=p_dropout,
+    )

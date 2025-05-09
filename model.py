@@ -2,7 +2,7 @@ import math
 from collections.abc import Iterable
 
 import torch
-from torch import Tensor, nn
+from torch import LongTensor, Tensor, nn
 from torch.nn import Module
 
 
@@ -76,7 +76,7 @@ class EncoderLayer(Module):
         self.n_heads = n_heads
 
         self.mha_layer_norm = nn.LayerNorm(d_model)
-        self.mha_sublayer = nn.MultiheadAttention(embed_dim=d_model, num_heads=n_heads)
+        self.mha_sublayer = nn.MultiheadAttention(embed_dim=d_model, num_heads=n_heads, batch_first=True)
         self.mha_dropout = nn.Dropout(p_dropout)
 
         self.mlp_layer_norm = nn.LayerNorm(d_model)
@@ -141,11 +141,12 @@ class InputIdEncoder(Module):
         self.token_encoder = nn.Embedding(num_embeddings=vocab_size, embedding_dim=d_model)
         self.positional_encoder = positional_encoder
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: LongTensor) -> Tensor:
         """Maps the input id space to the embedding space.
 
         Args:
-            x (Tensor): (N, t, vocab_size)
+            x (Tensor): (N, t) with batch_size N and sequence length t.
+            Each element is an input id is an integer in the range [0, vocab_size).
 
         Returns:
             Tensor: (N, t, d_model)

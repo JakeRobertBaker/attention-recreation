@@ -129,7 +129,7 @@ class SinePositionEncoder(Module):
         Returns:
             Tensor: shape (N, t, d_model)
         """
-        x = x + self.pe[:, : x.size(1), :].requires_grad(False)
+        x = x + self.pe[:, : x.size(1), :].requires_grad_(False)
         return self.dropout(x)
 
 

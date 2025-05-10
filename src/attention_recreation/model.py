@@ -135,45 +135,10 @@ class Encoder(Module):
             Tensor: shape (N, s, d_model)
         """
         for layer in self.layers:
-            source = layer.forward(source, source_key_padding_mask)
+            source = layer.forward(source=source, source_key_padding_mask=source_key_padding_mask)
         # we apply layer norm before each sublayer, thus need final layer norm after layer[-1]
         source = self.final_layer_norm(source)
         return source
-
-
-class Decoder(Module):
-    def __init__(
-        self,
-        d_model: int,
-        d_inner_layer: int,
-        n_heads: int,
-        n_stacks: int,
-        p_dropout: int,
-    ):
-        super().__init__()
-        self.d_model = d_model
-        self.d_inner_layer = d_inner_layer
-        self.n_heads = n_heads
-        self.n_stacks = n_stacks
-
-        self.layers: Iterable[DecoderLayer] = nn.ModuleList(
-            [
-                DecoderLayer(d_model=d_model, d_inner_layer=d_inner_layer, n_heads=n_heads, p_dropout=p_dropout)
-                for i in range(n_stacks)
-            ]
-        )
-
-        self.final_layer_norm = nn.LayerNorm(d_model)
-
-    def forward(self, target: Tensor, source: Tensor, source_key_padding_mask: Tensor):
-        """Applies decoing to shifted right target and source tensor
-
-        Args:
-            target (Tensor): shape (N, t, d_model)
-            source (Tensor): shape (N, s, d_model)
-            source_key_padding_mask (Tensor): shape (N, s), masking applied to source pad keys
-        """
-        pass
 
 
 class DecoderLayer(Module):
@@ -233,6 +198,45 @@ class DecoderLayer(Module):
         return y
 
 
+class Decoder(Module):
+    def __init__(
+        self,
+        d_model: int,
+        d_inner_layer: int,
+        n_heads: int,
+        n_stacks: int,
+        p_dropout: int,
+    ):
+        super().__init__()
+        self.d_model = d_model
+        self.d_inner_layer = d_inner_layer
+        self.n_heads = n_heads
+        self.n_stacks = n_stacks
+
+        self.layers: Iterable[DecoderLayer] = nn.ModuleList(
+            [
+                DecoderLayer(d_model=d_model, d_inner_layer=d_inner_layer, n_heads=n_heads, p_dropout=p_dropout)
+                for i in range(n_stacks)
+            ]
+        )
+
+        self.final_layer_norm = nn.LayerNorm(d_model)
+
+    def forward(self, target: Tensor, source: Tensor, source_key_padding_mask: Tensor):
+        """Applies decoing to shifted right target and source tensor
+
+        Args:
+            target (Tensor): shape (N, t, d_model)
+            source (Tensor): shape (N, s, d_model)
+            source_key_padding_mask (Tensor): shape (N, s), masking applied to source pad keys
+        """
+        for layer in self.layers:
+            target = layer.forward(target=target, source=source, source_key_padding_mask=source_key_padding_mask)
+
+        target = self.final_layer_norm(target)
+        return target
+
+
 class EncoderDecoder(Module):
     def __init__(
         self,
@@ -242,9 +246,10 @@ class EncoderDecoder(Module):
         n_encoder_stacks: int,
         n_decoder_stacks: int,
         source_vocab_size: int,
-        target_vocab_size: int,
+        target_vocab_size: int | None,
         input_id_encoder_factory: Callable[..., InputIdEncoder],
         encoder_factory: Callable[..., Encoder],
+        decoder_factory: Callable[..., Decoder],
         p_dropout: float = 0.1,
     ):
         super().__init__()
@@ -257,7 +262,12 @@ class EncoderDecoder(Module):
         self.target_vocab_size = target_vocab_size
 
         self.source_id_encoder = input_id_encoder_factory(vocab_size=source_vocab_size, d_model=d_model, p_dropout=p_dropout)
-        self.target_id_encoder = input_id_encoder_factory(vocab_size=target_vocab_size, d_model=d_model, p_dropout=p_dropout)
+
+        # if target vocab size is None then assume target and source are same language
+        if target_vocab_size:
+            self.target_id_encoder = input_id_encoder_factory(vocab_size=target_vocab_size, d_model=d_model, p_dropout=p_dropout)
+        else:
+            self.target_id_encoder = self.source_id_encoder
 
         self.encoder = encoder_factory(
             d_model=d_model,
@@ -266,6 +276,39 @@ class EncoderDecoder(Module):
             n_heads=n_heads,
             p_dropout=p_dropout,
         )
+
+        self.decoder = decoder_factory(
+            d_model=d_model,
+            d_inner_layer=d_inner_layer,
+            n_stacks=n_encoder_stacks,
+            n_heads=n_heads,
+            p_dropout=p_dropout,
+        )
+
+    def forward(self, target_ids: LongTensor, source_ids: LongTensor, source_key_padding_mask: Tensor):
+        """
+        Apply full encoder decoder.
+
+        Args:
+            source (Tensor): shape (N, s, d_model)
+            target (Tensor): shape (N, t, d_model)
+        """
+
+        source = self.source_id_encoder.forward(source_ids)
+        target = self.target_id_encoder.forward(target_ids)
+
+        encoded_source = self.encoder.forward(
+            source=source,
+            source_key_padding_mask=source_key_padding_mask,
+        )
+
+        decoded_target = self.decoder.forward(
+            target=target,
+            source=encoded_source,
+            source_key_padding_mask=source_key_padding_mask,
+        )
+
+        # TODO final projection into target embed space
 
 
 def make_input_id_encoder(
@@ -285,6 +328,22 @@ def make_encoder(
     p_dropout: float,
 ) -> Encoder:
     return Encoder(
+        d_model=d_model,
+        d_inner_layer=d_inner_layer,
+        n_heads=n_heads,
+        n_stacks=n_stacks,
+        p_dropout=p_dropout,
+    )
+
+
+def make_decoder(
+    d_model: int,
+    d_inner_layer: int,
+    n_heads: int,
+    n_stacks: int,
+    p_dropout: float,
+) -> Decoder:
+    return Decoder(
         d_model=d_model,
         d_inner_layer=d_inner_layer,
         n_heads=n_heads,

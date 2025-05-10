@@ -82,24 +82,23 @@ class EncoderLayer(Module):
         self.mlp_sublayer = nn.Sequential(nn.Linear(d_model, d_inner_layer), nn.Linear(d_inner_layer, d_model), nn.GELU())
         self.mlp_dropout = nn.Dropout(p_dropout)
 
-    def forward(self, x: Tensor, key_padding_mask: Tensor) -> Tensor:
+    def forward(self, source: Tensor, source_key_padding_mask: Tensor) -> Tensor:
         """
         Args:
-            x (Tensor): shape (N, t, d_model)
-            mask (Tensor): shape (t,t)
-            key_padding_mask (Tensor): shape (t,t)
+            source (Tensor): shape (N, s, d_model)
+            source_key_padding_mask (Tensor): shape (N, s), masking applied to source pad keys
 
         Returns:
-            Tensor: shape (N, t, d_model)
+            Tensor: shape (N, s, d_model)
         """
-        y = self.mha_layer_norm(x)
-        y = self.mha_sublayer.forward(query=y, key=y, value=y, key_padding_mask=key_padding_mask)
+        x = self.mha_layer_norm(source)
+        y = self.mha_sublayer.forward(query=x, key=x, value=x, key_padding_mask=source_key_padding_mask)
         y = self.mha_dropout(y) + x
 
-        z = self.mlp_layer_norm(y)
-        z = self.mlp_sublayer(z)
-        z = self.mlp_dropout(z) + y
-        return z
+        x = self.mlp_layer_norm(y)
+        y = self.mlp_sublayer(x)
+        y = self.mlp_dropout(y) + x
+        return y
 
 
 class Encoder(Module):
@@ -125,21 +124,113 @@ class Encoder(Module):
         )
         self.final_layer_norm = nn.LayerNorm(d_model)
 
-    def forward(self, x: Tensor, key_padding_mask: Tensor) -> Tensor:
-        """Apply the Encoder laters to the encoded input ids.
+    def forward(self, source: Tensor, source_key_padding_mask: Tensor) -> Tensor:
+        """Apply the Encoder to encoded input IDs.
 
         Args:
-            x (Tensor): shape (N, t, d_model)
-            key_padding_mask (Tensor): shape (t,t)
+            source (Tensor): shape (N, s, d_model)
+            source_key_padding_mask (Tensor): shape (N, s), masking applied to source pad keys
 
         Returns:
-            Tensor: shape (N, t, d_model)
+            Tensor: shape (N, s, d_model)
         """
         for layer in self.layers:
-            x = layer.forward(x, key_padding_mask)
+            source = layer.forward(source, source_key_padding_mask)
         # we apply layer norm before each sublayer, thus need final layer norm after layer[-1]
-        x = self.final_layer_norm(x)
-        return x
+        source = self.final_layer_norm(source)
+        return source
+
+
+class Decoder(Module):
+    def __init__(
+        self,
+        d_model: int,
+        d_inner_layer: int,
+        n_heads: int,
+        n_stacks: int,
+        p_dropout: int,
+    ):
+        super().__init__()
+        self.d_model = d_model
+        self.d_inner_layer = d_inner_layer
+        self.n_heads = n_heads
+        self.n_stacks = n_stacks
+
+        self.layers: Iterable[DecoderLayer] = nn.ModuleList(
+            [
+                DecoderLayer(d_model=d_model, d_inner_layer=d_inner_layer, n_heads=n_heads, p_dropout=p_dropout)
+                for i in range(n_stacks)
+            ]
+        )
+
+        self.final_layer_norm = nn.LayerNorm(d_model)
+
+    def forward(self, target: Tensor, source: Tensor, source_key_padding_mask: Tensor):
+        """Applies decoing to shifted right target and source tensor
+
+        Args:
+            target (Tensor): shape (N, t, d_model)
+            source (Tensor): shape (N, s, d_model)
+            source_key_padding_mask (Tensor): shape (N, s), masking applied to source pad keys
+        """
+        pass
+
+
+class DecoderLayer(Module):
+    def __init__(
+        self,
+        d_model: int,
+        d_inner_layer: int,
+        n_heads: int,
+        p_dropout: int,
+    ):
+        super().__init__()
+        self.d_model = d_model
+        self.d_inner_layer = d_inner_layer
+        self.n_heads = n_heads
+
+        self.self_mha_layer_norm = nn.LayerNorm(d_model)
+        self.self_mha_sublayer = nn.MultiheadAttention(embed_dim=d_model, num_heads=n_heads, batch_first=True)
+        self.self_mha_dropout = nn.Dropout(p_dropout)
+
+        self.cross_mha_layer_norm = nn.LayerNorm(d_model)
+        self.cross_mha_layer_sublayer = nn.MultiheadAttention(embed_dim=d_model, num_heads=n_heads, batch_first=True)
+        self.cross_mha_dropout = nn.Dropout(p_dropout)
+
+        self.mlp_layer_norm = nn.LayerNorm(d_model)
+        self.mlp_sublayer = nn.Sequential(nn.Linear(d_model, d_inner_layer), nn.Linear(d_inner_layer, d_model), nn.GELU())
+        self.mlp_dropout = nn.Dropout(p_dropout)
+
+    def forward(self, target: Tensor, source: Tensor, source_key_padding_mask: Tensor):
+        """Decoder layer applies
+
+
+        Args:
+            target (Tensor): shape (N, t, d_model), used for queries in cross mha
+            source (Tensor): shape (N, s, d_model), used for keys and values in cross mha
+            source_key_padding_mask (Tensor): shape (N, s), masking applied to source pad keys
+        """
+
+        # target self attention has causal mask activated.
+        target_x = self.self_mha_layer_norm(target)
+        target_y = self.self_mha_sublayer.forward(query=target_x, key=target_x, value=target_x, is_causal=True)
+        target_y = self.self_mha_dropout(target_y) + target_x
+
+        # cross attention has a padding mask
+        target_x = self.cross_mha_layer_norm(target_y)
+        y = self.cross_mha_layer_sublayer.forward(
+            query=target_x,
+            key=source,
+            value=source,
+            key_padding_mask=source_key_padding_mask,
+        )
+        y = self.cross_mha_dropout(y) + target_x
+
+        x = self.mlp_layer_norm(y)
+        y = self.mlp_sublayer(x)
+        y = self.mlp_dropout(y) + x
+
+        return y
 
 
 class EncoderDecoder(Module):

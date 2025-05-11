@@ -7,6 +7,71 @@ from torch import LongTensor, Tensor, nn
 from torch.nn import Module
 
 
+class MultiHeadAttention(Module):
+    def __init__(self, d_model, n_heads, d_q, d_k, d_v):
+        super().__init__()
+        assert d_model % n_heads == 0, "d_model is not divisible by n_heads"
+
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.d_head = d_model // n_heads
+
+        self.d_q = d_q
+        self.d_k = d_k
+        self.d_v = d_v
+
+        self.proj_q = nn.Linear(d_q, d_model)
+        self.proj_k = nn.Linear(d_k, d_model)
+        self.proj_v = nn.Linear(d_v, d_model)
+
+    def forward(
+        self,
+        query: Tensor,
+        key: Tensor,
+        value: Tensor,
+        attn_mask: Tensor | None = None,
+        is_causal: bool = False,
+        source_key_padding_mask: Tensor | None = None,
+    ):
+        """_summary_
+
+        Args:
+            query (Tensor): shape (N, t, d_q)
+            key (Tensor): shape (N, s, d_k)
+            value (Tensor): shape (N, t, d_v)
+            source_key_padding_mask (Tensor): shape (N,s)
+        """
+        if isinstance(source_key_padding_mask, Tensor) and isinstance(attn_mask, Tensor):
+            raise ValueError(
+                "Cannot have both source_key_padding_mask and attn_mask as args since source_key_padding_mask defines a attn_mask."
+            )
+
+        batch_size, target_length, _ = query.shape
+        _, source_length, _ = key.shape
+
+        if isinstance(source_key_padding_mask, Tensor):
+            # (N,s) -> (N,1,s) -> (N,t,s)
+            attn_mask = source_key_padding_mask.unsqueeze(1).expand(batch_size, target_length, source_length).unsqueeze(1)
+
+        # want 
+
+        # query does: (N, t, d_q) -> (N, t, d_model) -> (N, t, n_heads, d_head) -> (N, n_heads, t, d_head)
+        q = self.proj_q.forward(query).view(batch_size, target_length, self.n_heads, self.d_head).transpose(1,2)
+        k = self.proj_k.forward(key).view(batch_size, source_length, self.n_heads, self.d_head).transpose(1,2)
+        v = self.proj_v.forward(value).view(batch_size, source_length, self.n_heads, self.d_head).transpose(1,2)
+
+        y = torch.nn.functional.scaled_dot_product_attention(
+            query=q,
+            key=k,
+            value=v,
+            attn_mask=attn_mask,
+            is_causal=is_causal,
+        )
+        # (N, n_heads, t, d_head) -> (N, t, n_heads, d_head) -> (N, t, d_model)
+        y = y.transpose(1,2).view(batch_size, target_length, self.d_model)
+        return y
+
+
 class SinePositionEncoder(Module):
     def __init__(self, d_model: int, p_dropout: float, max_seq_length: int = 5_000):
         super().__init__()
@@ -75,7 +140,7 @@ class EncoderLayer(Module):
         self.n_heads = n_heads
 
         self.mha_layer_norm = nn.LayerNorm(d_model)
-        self.mha_sublayer = nn.MultiheadAttention(embed_dim=d_model, num_heads=n_heads, batch_first=True)
+        self.mha_sublayer = MultiHeadAttention(d_model=d_model, n_heads=n_heads, d_q=d_model, d_k=d_model, d_v=d_model)
         self.mha_dropout = nn.Dropout(p_dropout)
 
         self.mlp_layer_norm = nn.LayerNorm(d_model)
@@ -92,7 +157,7 @@ class EncoderLayer(Module):
             Tensor: shape (N, s, d_model)
         """
         x = self.mha_layer_norm(source)
-        y = self.mha_sublayer.forward(query=x, key=x, value=x, key_padding_mask=source_key_padding_mask)
+        y = self.mha_sublayer.forward(query=x, key=x, value=x, source_key_padding_mask=source_key_padding_mask)
         y = self.mha_dropout(y) + x
 
         x = self.mlp_layer_norm(y)
@@ -155,11 +220,11 @@ class DecoderLayer(Module):
         self.n_heads = n_heads
 
         self.self_mha_layer_norm = nn.LayerNorm(d_model)
-        self.self_mha_sublayer = nn.MultiheadAttention(embed_dim=d_model, num_heads=n_heads, batch_first=True)
+        self.self_mha_sublayer = MultiHeadAttention(d_model=d_model, n_heads=n_heads, d_q=d_model, d_k=d_model, d_v=d_model)
         self.self_mha_dropout = nn.Dropout(p_dropout)
 
         self.cross_mha_layer_norm = nn.LayerNorm(d_model)
-        self.cross_mha_layer_sublayer = nn.MultiheadAttention(embed_dim=d_model, num_heads=n_heads, batch_first=True)
+        self.cross_mha_sublayer = MultiHeadAttention(d_model=d_model, n_heads=n_heads, d_q=d_model, d_k=d_model, d_v=d_model)
         self.cross_mha_dropout = nn.Dropout(p_dropout)
 
         self.mlp_layer_norm = nn.LayerNorm(d_model)
@@ -183,11 +248,11 @@ class DecoderLayer(Module):
 
         # cross attention has a padding mask
         target_x = self.cross_mha_layer_norm(target_y)
-        y = self.cross_mha_layer_sublayer.forward(
+        y = self.cross_mha_sublayer.forward(
             query=target_x,
             key=source,
             value=source,
-            key_padding_mask=source_key_padding_mask,
+            source_key_padding_mask=source_key_padding_mask,
         )
         y = self.cross_mha_dropout(y) + target_x
 

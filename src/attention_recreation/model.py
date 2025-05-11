@@ -53,12 +53,12 @@ class MultiHeadAttention(Module):
             # (N,s) -> (N,1,s) -> (N,t,s)
             attn_mask = source_key_padding_mask.unsqueeze(1).expand(batch_size, target_length, source_length).unsqueeze(1)
 
-        # want 
+        # want
 
         # query does: (N, t, d_q) -> (N, t, d_model) -> (N, t, n_heads, d_head) -> (N, n_heads, t, d_head)
-        q = self.proj_q.forward(query).view(batch_size, target_length, self.n_heads, self.d_head).transpose(1,2)
-        k = self.proj_k.forward(key).view(batch_size, source_length, self.n_heads, self.d_head).transpose(1,2)
-        v = self.proj_v.forward(value).view(batch_size, source_length, self.n_heads, self.d_head).transpose(1,2)
+        q = self.proj_q.forward(query).view(batch_size, target_length, self.n_heads, self.d_head).transpose(1, 2)
+        k = self.proj_k.forward(key).view(batch_size, source_length, self.n_heads, self.d_head).transpose(1, 2)
+        v = self.proj_v.forward(value).view(batch_size, source_length, self.n_heads, self.d_head).transpose(1, 2)
 
         y = torch.nn.functional.scaled_dot_product_attention(
             query=q,
@@ -68,7 +68,7 @@ class MultiHeadAttention(Module):
             is_causal=is_causal,
         )
         # (N, n_heads, t, d_head) -> (N, t, n_heads, d_head) -> (N, t, d_model)
-        y = y.transpose(1,2).view(batch_size, target_length, self.d_model)
+        y = y.transpose(1, 2).view(batch_size, target_length, self.d_model)
         return y
 
 
@@ -373,7 +373,14 @@ class EncoderDecoder(Module):
             source_key_padding_mask=source_key_padding_mask,
         )
 
-        # TODO final projection into target embed space
+        # TODO final projection into target embed space and SOFTMAX
+
+        out = decoded_target @ self.source_id_encoder.token_encoder.weight.T
+
+
+        return out
+
+
 
 
 def make_input_id_encoder(
